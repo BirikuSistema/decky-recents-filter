@@ -1,0 +1,11 @@
+{
+  "name": "Recents Filter",
+  "author": "Biriku",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": ["library", "home", "recents", "filter", "quality-of-life"],
+    "description": "Hide browsers, launchers, web apps and other utilities from the SteamOS Recently Played row using selectable filters.",
+    "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
+  }
+}
