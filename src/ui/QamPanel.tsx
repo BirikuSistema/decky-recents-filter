@@ -5,7 +5,7 @@ import { getCurrentSettings, subscribeSettings, updateSettings } from "../settin
 import { PLAYTIME_STEPS, playtimeStepIndex, type RecentsFilterSettings } from "../settings/schema";
 import { getDiagnostics, subscribeDiagnostics } from "../recents/diagnostics";
 import { requestRecentsRefresh, resetCrashState } from "../recents/recentsPatch";
-import { listHideableCollections, type SteamCollectionInfo } from "../steam/collections";
+import { listAllHideableFilters, type SteamCollectionInfo } from "../steam/collections";
 import {
   checkForUpdate,
   getCachedUpdateInfo,
@@ -24,7 +24,7 @@ export function QamPanel() {
   const text = t();
   const [settings, setSettings] = useState<RecentsFilterSettings>(getCurrentSettings);
   const [diag, setDiag] = useState(getDiagnostics);
-  const [collections, setCollections] = useState<SteamCollectionInfo[]>(listHideableCollections);
+  const [collections, setCollections] = useState<SteamCollectionInfo[]>(listAllHideableFilters);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(getCachedUpdateInfo);
   const [version, setVersion] = useState("…");
   const [updateMode, setUpdateMode] = useState<UpdateBtnMode>(() =>
@@ -42,7 +42,7 @@ export function QamPanel() {
         if (info?.hasUpdate) setUpdateMode("available");
       }),
     ];
-    const timer = window.setInterval(() => setCollections(listHideableCollections()), 4000);
+    const timer = window.setInterval(() => setCollections(listAllHideableFilters()), 4000);
     void getInstalledVersion().then(setVersion);
     return () => {
       unsubs.forEach((unsub) => unsub());
@@ -194,6 +194,15 @@ export function QamPanel() {
           />
         </SafeRow>
         <SafeRow>
+          <SafeActionRow
+            label={text.hiddenByStart}
+            description={hiddenCount > 0 ? text.gameCount(hiddenCount) : text.hiddenNone}
+            action={text.view}
+            disabled={off}
+            onClick={() => openHiddenAppsModal()}
+          />
+        </SafeRow>
+        <SafeRow>
           <SafeSlider
             label={text.minPlaytime}
             description={playtimeDesc}
@@ -207,22 +216,13 @@ export function QamPanel() {
             }}
           />
         </SafeRow>
-        <SafeRow>
-          <SafeActionRow
-            label={text.hiddenByStart}
-            description={hiddenCount > 0 ? text.gameCount(hiddenCount) : text.hiddenNone}
-            action={text.view}
-            disabled={off}
-            onClick={() => openHiddenAppsModal()}
-          />
-        </SafeRow>
       </SafeSection>
 
       <SafeSection>
         <SafeRow>
           <SafeButton
             onClick={() => {
-              setCollections(listHideableCollections());
+              setCollections(listAllHideableFilters());
               requestRecentsRefresh();
               try {
                 Navigation.CloseSideMenus?.();

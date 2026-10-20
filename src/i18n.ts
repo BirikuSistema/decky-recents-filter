@@ -18,16 +18,27 @@ const STRINGS = {
     minPlaytimeOff: "No minimum",
     minPlaytimeValue: (min: number) => `Hide games under ${min} min`,
     filters: "Filters",
-    collections: "Collections",
+    collections: "Collections & categories",
     collectionsNone: "No collections",
     collectionsAll: "All visible",
     collectionsSome: (shown: number, total: number) => `${shown} of ${total} visible`,
     collectionsHiddenCount: (n: number) => (n === 1 ? "1 hidden" : `${n} hidden`),
-    collectionsTitle: "Collections in Recents",
-    collectionsHint: "Turn a collection off to hide its games from Recently Played.",
-    collectionsEmpty: "You have no collections. Create them in your Steam library.",
+    collectionsTitle: "Hide from Recents",
+    collectionsHint:
+      "Turn a category or collection off to hide matching games from Recently Played.",
+    collectionsEmpty: "You have no custom collections. Create them in your Steam library.",
     collectionsShowAll: "Show all",
+    filtersLibrary: "Library categories",
+    filtersYours: "Your collections",
+    filterNotInstalled: "Not installed",
+    filterDemos: "Demos",
+    filterMusic: "Soundtracks",
+    filterVideos: "Videos",
+    filterUncategorized: "Uncategorized",
+    filterHidden: "Hidden in Steam",
     gameCount: (n: number) => (n === 1 ? "1 game" : `${n} games`),
+    /** Counts for categories/collections that may include non-games. */
+    itemCount: (n: number) => (n === 1 ? "1 item" : `${n} items`),
     hiddenByStart: "Hidden games",
     hiddenNone: "None",
     hiddenTitle: "Hidden games",
@@ -37,7 +48,7 @@ const STRINGS = {
     summaryIdle: "No active filters",
     summaryActive: (collections: number, games: number) => {
       const parts: string[] = [];
-      if (collections > 0) parts.push(collections === 1 ? "1 collection" : `${collections} collections`);
+      if (collections > 0) parts.push(collections === 1 ? "1 category" : `${collections} categories`);
       if (games > 0) parts.push(games === 1 ? "1 hidden game" : `${games} hidden games`);
       return parts.join(" · ") || "No active filters";
     },
@@ -80,16 +91,27 @@ const STRINGS = {
     minPlaytimeOff: "Sin mínimo",
     minPlaytimeValue: (min: number) => `Oculta juegos con menos de ${min} min`,
     filters: "Filtros",
-    collections: "Colecciones",
+    collections: "Colecciones y categorías",
     collectionsNone: "Sin colecciones",
     collectionsAll: "Todas visibles",
     collectionsSome: (shown: number, total: number) => `${shown} de ${total} visibles`,
     collectionsHiddenCount: (n: number) => (n === 1 ? "1 oculta" : `${n} ocultas`),
-    collectionsTitle: "Colecciones en recientes",
-    collectionsHint: "Desactiva una colección para ocultar sus juegos de recientes.",
-    collectionsEmpty: "No tienes colecciones. Créalas en la biblioteca de Steam.",
+    collectionsTitle: "Ocultar de recientes",
+    collectionsHint:
+      "Desactiva una categoría o colección para ocultar esos juegos de recientes.",
+    collectionsEmpty: "No tienes colecciones propias. Créalas en la biblioteca de Steam.",
     collectionsShowAll: "Mostrar todas",
+    filtersLibrary: "Categorías de biblioteca",
+    filtersYours: "Tus colecciones",
+    filterNotInstalled: "No instalados",
+    filterDemos: "Demos",
+    filterMusic: "Bandas sonoras",
+    filterVideos: "Vídeos",
+    filterUncategorized: "Sin categoría",
+    filterHidden: "Ocultos en Steam",
     gameCount: (n: number) => (n === 1 ? "1 juego" : `${n} juegos`),
+    /** Contadores de categorías/colecciones (pueden no ser juegos). */
+    itemCount: (n: number) => (n === 1 ? "1 elemento" : `${n} elementos`),
     hiddenByStart: "Juegos ocultos",
     hiddenNone: "Ninguno",
     hiddenTitle: "Juegos ocultos",
@@ -99,7 +121,7 @@ const STRINGS = {
     summaryIdle: "Sin filtros activos",
     summaryActive: (collections: number, games: number) => {
       const parts: string[] = [];
-      if (collections > 0) parts.push(collections === 1 ? "1 colección" : `${collections} colecciones`);
+      if (collections > 0) parts.push(collections === 1 ? "1 categoría" : `${collections} categorías`);
       if (games > 0) parts.push(games === 1 ? "1 juego oculto" : `${games} juegos ocultos`);
       return parts.join(" · ") || "Sin filtros activos";
     },

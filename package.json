@@ -1,12 +1,12 @@
 {
   "name": "decky-recents-filter",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Filter which apps appear in the SteamOS Recently Played row via Decky.",
   "type": "module",
   "scripts": {
     "build": "rollup -c",
     "watch": "rollup -c -w",
-    "test": "tsx --test src/filters/engine.test.ts src/steam/srmDedup.test.ts"
+    "test": "tsx --test src/filters/engine.test.ts src/steam/srmDedup.test.ts src/steam/collections.test.ts"
   },
   "keywords": [
     "decky",
