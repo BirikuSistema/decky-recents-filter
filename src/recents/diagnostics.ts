@@ -12,6 +12,7 @@ export interface PatchDiagnostics {
   lastNativeCount: number;
   lastVisibleCount: number;
   lastHiddenCount: number;
+  lastTarget: number;
 }
 
 const listeners = new Set<() => void>();
@@ -22,6 +23,7 @@ let state: PatchDiagnostics = {
   lastNativeCount: 0,
   lastVisibleCount: 0,
   lastHiddenCount: 0,
+  lastTarget: 0,
 };
 
 export function getDiagnostics(): PatchDiagnostics {
@@ -55,6 +57,7 @@ export function resetDiagnostics(): void {
     lastNativeCount: 0,
     lastVisibleCount: 0,
     lastHiddenCount: 0,
+    lastTarget: 0,
   };
   notify();
 }

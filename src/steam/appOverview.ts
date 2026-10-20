@@ -195,35 +195,84 @@ export function keepLibraryApps(appIds: number[]): number[] {
 }
 
 /**
- * Candidates used to backfill the Recents row after filtering.
- * Prefer Steam's real MRU collections so orphan shortcuts never appear.
+ * Ordered appids from Steam's native Recents collection (unmutated source of truth).
+ * Prefer this over React props.games, which our patch rewrites in place.
  */
-export function listRecentlyPlayedAppIds(limit = 80): number[] {
-  const fromMru = recentActivityOverviews();
-  if (fromMru.length > 0) {
-    const scored = fromMru.map((overview) => {
-      const id = Number(overview.appid);
-      const time = Math.max(
-        Number(overview.rt_last_time_locally_played ?? 0),
-        Number(overview.rt_last_time_played ?? 0),
-        overview.mru_index != null ? Number.MAX_SAFE_INTEGER - Number(overview.mru_index) : 0,
-      );
-      return { id, time };
-    });
-    scored.sort((a, b) => b.time - a.time);
-    return scored.slice(0, limit).map((item) => item.id);
-  }
+export function getSteamRecentAppIds(): number[] {
+  const cs = collectionStore();
+  if (!cs) return [];
 
-  // Fallback while MRU collections are unavailable: library apps with real activity only.
-  const scored: Array<{ id: number; time: number }> = [];
-  for (const [id, overview] of libraryOverviews()) {
-    if (!hasRealPlayActivity(overview)) continue;
-    const time = Math.max(
-      Number(overview.rt_last_time_locally_played ?? 0),
-      Number(overview.rt_last_time_played ?? 0),
-    );
-    if (time > 0) scored.push({ id, time });
+  const tryCollection = (collection: any): number[] => {
+    const ids: number[] = [];
+    for (const overview of collectionOverviews(collection)) {
+      const id = Number(overview?.appid);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      if (!isEligibleLibraryApp(overview, id)) continue;
+      ids.push(id);
+    }
+    return ids;
+  };
+
+  try {
+    const recent = tryCollection(cs.recentAppsCollection);
+    if (recent.length > 0) return recent;
+  } catch {
+    /* ignore */
   }
-  scored.sort((a, b) => b.time - a.time);
-  return scored.slice(0, limit).map((item) => item.id);
+  try {
+    const byId = tryCollection(cs.GetCollection?.("recent"));
+    if (byId.length > 0) return byId;
+  } catch {
+    /* ignore */
+  }
+  try {
+    const local = tryCollection(cs.localPlayedGamesCollection);
+    if (local.length > 0) return local;
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
+
+/** Native row length Steam would show — independent of our React prop mutations. */
+export function getNativeRowTarget(fallback = 12): number {
+  const steam = getSteamRecentAppIds();
+  if (steam.length > 0) return steam.length;
+  return Math.max(1, fallback);
+}
+
+function playSortKey(overview: any): number {
+  return Math.max(
+    Number(overview?.rt_last_time_locally_played ?? 0),
+    Number(overview?.rt_last_time_played ?? 0),
+    overview?.mru_index != null ? Number.MAX_SAFE_INTEGER - Number(overview.mru_index) : 0,
+  );
+}
+
+/**
+ * Backfill pool for the Recents row after filtering.
+ * Must go beyond Steam's native Recents list — otherwise extras mostly duplicate
+ * the source and the row cannot refill after hides (visible << target).
+ */
+export function listRecentlyPlayedAppIds(limit = 120): number[] {
+  const scored = new Map<number, number>();
+
+  const consider = (overview: any) => {
+    const id = Number(overview?.appid);
+    if (!Number.isFinite(id) || id <= 0) return;
+    if (!isEligibleLibraryApp(overview, id)) return;
+    if (!hasRealPlayActivity(overview)) return;
+    const time = playSortKey(overview);
+    if (time <= 0) return;
+    const prev = scored.get(id) ?? 0;
+    if (time > prev) scored.set(id, time);
+  };
+
+  for (const overview of recentActivityOverviews()) consider(overview);
+  for (const overview of libraryOverviews().values()) consider(overview);
+
+  return [...scored.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, Math.max(1, limit))
+    .map(([id]) => id);
 }

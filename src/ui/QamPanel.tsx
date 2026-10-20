@@ -2,13 +2,7 @@ import { Navigation } from "@decky/ui";
 import { useEffect, useState } from "react";
 import { t } from "../i18n";
 import { getCurrentSettings, subscribeSettings, updateSettings } from "../settings/store";
-import {
-  MAX_VISIBLE,
-  MIN_VISIBLE,
-  PLAYTIME_STEPS,
-  playtimeStepIndex,
-  type RecentsFilterSettings,
-} from "../settings/schema";
+import { PLAYTIME_STEPS, playtimeStepIndex, type RecentsFilterSettings } from "../settings/schema";
 import { getDiagnostics, subscribeDiagnostics } from "../recents/diagnostics";
 import { requestRecentsRefresh, resetCrashState } from "../recents/recentsPatch";
 import { listHideableCollections, type SteamCollectionInfo } from "../steam/collections";
@@ -65,10 +59,7 @@ export function QamPanel() {
     settings.minPlaytimeMinutes > 0
       ? text.minPlaytimeValue(settings.minPlaytimeMinutes)
       : text.minPlaytimeOff;
-  const visibleDesc =
-    diag.status === "ok" && diag.lastVisibleCount > 0
-      ? text.showingOf(diag.lastVisibleCount, settings.maxVisible)
-      : undefined;
+  const rowTarget = diag.lastTarget || diag.lastNativeCount || 0;
   const off = !settings.enabled;
   const summary =
     hiddenCollections > 0 || hiddenCount > 0
@@ -139,16 +130,12 @@ export function QamPanel() {
           />
         </SafeRow>
         <SafeRow>
-          <SafeSlider
-            label={text.visibleGames}
-            description={visibleDesc}
-            value={settings.maxVisible}
-            min={MIN_VISIBLE}
-            max={MAX_VISIBLE}
-            showValue
-            disabled={off}
-            onChange={(value) => void updateSettings({ maxVisible: value })}
-          />
+          <div style={{ opacity: 0.7, fontSize: 12, lineHeight: 1.4 }}>
+            {text.rowSizeHint(rowTarget)}
+            {diag.status === "ok" && diag.lastVisibleCount > 0
+              ? ` · ${text.showingOf(diag.lastVisibleCount, diag.lastTarget || rowTarget)}`
+              : ""}
+          </div>
         </SafeRow>
       </SafeSection>
 

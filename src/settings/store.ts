@@ -1,5 +1,7 @@
 import { callable } from "@decky/api";
+import { wouldEmptyRecents } from "../filters/engine";
 import { appInHiddenCollections } from "../steam/collections";
+import { showCannotEmptyRecentsAlert } from "../ui/cannotEmptyAlert";
 import {
   DEFAULT_SETTINGS,
   normalizeSettings,
@@ -47,16 +49,34 @@ export async function loadSettings(): Promise<RecentsFilterSettings> {
 
 let saveSeq = 0;
 
+function blocksIfWouldEmpty(next: RecentsFilterSettings): boolean {
+  if (!wouldEmptyRecents(next)) return false;
+  showCannotEmptyRecentsAlert();
+  return true;
+}
+
 export async function updateSettings(
   patch: Partial<RecentsFilterSettings>,
 ): Promise<RecentsFilterSettings> {
   const next = normalizeSettings({ ...current, ...patch });
+
+  // Only guard when the change makes the filter stricter (could empty the row).
+  const tightening =
+    patch.hiddenAppIds !== undefined ||
+    patch.hiddenCollectionIds !== undefined ||
+    patch.minPlaytimeMinutes !== undefined ||
+    patch.shownAppIds !== undefined ||
+    (patch.enabled === true && !current.enabled);
+
+  if (tightening && next.enabled && blocksIfWouldEmpty(next)) {
+    return current;
+  }
+
   current = next;
   notify();
   const seq = ++saveSeq;
   try {
     const saved = normalizeSettings(await saveSettingsBackend(next));
-    // Only the newest save may touch the in-memory state, and only if it differs.
     if (seq === saveSeq && JSON.stringify(saved) !== JSON.stringify(current)) {
       current = saved;
       notify();
@@ -105,7 +125,6 @@ export async function setAppHiddenFromRecents(
     const hiddenByCollection = appInHiddenCollections(id, current.hiddenCollectionIds);
     return updateSettings({
       shownAppIds: toggleIdInList(current.shownAppIds, id, false),
-      // Only add to the manual denylist when the collection filter would not already hide it.
       hiddenAppIds: toggleIdInList(current.hiddenAppIds, id, !hiddenByCollection),
     });
   }

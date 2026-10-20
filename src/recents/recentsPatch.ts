@@ -1,6 +1,10 @@
 import { filterAppIds, sameIdList } from "../filters/engine";
 import { getCurrentSettings, subscribeSettings } from "../settings/store";
-import { keepLibraryApps, listRecentlyPlayedAppIds } from "../steam/appOverview";
+import {
+  getNativeRowTarget,
+  getSteamRecentAppIds,
+  listRecentlyPlayedAppIds,
+} from "../steam/appOverview";
 import { resetDiagnostics, setDiagnostics } from "./diagnostics";
 import { findInReactTree, patchElementType, releaseAllPatches } from "./reactTree";
 import { notifyRecentsRefresh, subscribeRecentsRefresh } from "./refreshBus";
@@ -202,40 +206,45 @@ function clearHeaderCss(): void {
 }
 
 function applyFilterToHolder(holder: { node: any; key: "games" | "apps" }): boolean {
-  const nativeIds = asAppIds(holder.node.props[holder.key]);
-  if (!nativeIds) return false;
+  const propsIds = asAppIds(holder.node.props[holder.key]);
+  if (!propsIds) return false;
 
   const settings = getCurrentSettings();
+  // Prefer Steam's collection (immutable) over mutated React props — fixes slider/native drift.
+  const steamSource = getSteamRecentAppIds();
+  const sourceIds = steamSource.length > 0 ? steamSource : propsIds;
+  const target = getNativeRowTarget(sourceIds.length || propsIds.length || 12);
+
   if (!settings.enabled) {
     setDiagnostics({
       status: "disabled",
-      lastNativeCount: nativeIds.length,
-      lastVisibleCount: nativeIds.length,
+      lastNativeCount: sourceIds.length,
+      lastVisibleCount: propsIds.length,
       lastHiddenCount: 0,
+      lastTarget: target,
     });
     return true;
   }
 
-  const extras = listRecentlyPlayedAppIds(Math.max(80, settings.maxVisible * 4));
-  const libraryNative = keepLibraryApps(nativeIds);
-  const filtered = filterAppIds(libraryNative, settings, extras);
-  if (nativeIds.length !== libraryNative.length) {
-    log("dropped non-library entries", nativeIds.filter((id) => !libraryNative.includes(id)));
+  const extras = listRecentlyPlayedAppIds(Math.max(120, target * 6));
+  const filtered = filterAppIds(sourceIds, settings, extras, target);
+
+  const forceWrite = appliedRefreshGeneration !== refreshGeneration;
+  const same = sameIdList(propsIds, filtered);
+  const willWrite = forceWrite || !same;
+  if (willWrite) {
+    holder.node.props[holder.key] = filtered.slice();
+    appliedRefreshGeneration = refreshGeneration;
   }
 
   setDiagnostics({
     status: "ok",
     error: null,
-    lastNativeCount: nativeIds.length,
+    lastNativeCount: sourceIds.length,
     lastVisibleCount: filtered.length,
-    lastHiddenCount: Math.max(0, nativeIds.length - filtered.length),
+    lastHiddenCount: Math.max(0, sourceIds.length - filtered.length),
+    lastTarget: target,
   });
-
-  const forceWrite = appliedRefreshGeneration !== refreshGeneration;
-  if (forceWrite || !sameIdList(nativeIds, filtered)) {
-    holder.node.props[holder.key] = filtered.slice();
-    appliedRefreshGeneration = refreshGeneration;
-  }
   return true;
 }
 

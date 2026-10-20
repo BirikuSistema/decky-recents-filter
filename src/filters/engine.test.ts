@@ -10,13 +10,13 @@ describe("filterAppIds", () => {
     assert.deepEqual(result, ids);
   });
 
-  it("hides manual denylist ids", () => {
+  it("hides manual denylist ids and backfills to native target", () => {
     const settings = {
       ...DEFAULT_SETTINGS,
       hiddenAppIds: [2],
-      keepRowIfEmpty: false,
     };
-    assert.deepEqual(filterAppIds([1, 2, 3], settings), [1, 3]);
+    // Target stays at native size (3): drop 2, pull 4 from extras.
+    assert.deepEqual(filterAppIds([1, 2, 3], settings, [4, 5], 3), [1, 3, 4]);
   });
 
   it("shown ids win over the denylist", () => {
@@ -25,26 +25,54 @@ describe("filterAppIds", () => {
       hiddenAppIds: [2],
       shownAppIds: [2],
     };
-    assert.deepEqual(filterAppIds([1, 2, 3], settings), [1, 2, 3]);
+    assert.deepEqual(filterAppIds([1, 2, 3], settings, [], 3), [1, 2, 3]);
   });
 
-  it("keeps the native row when the filter would empty it", () => {
+  it("may shrink when there are not enough extras to backfill", () => {
     const settings = {
       ...DEFAULT_SETTINGS,
       hiddenAppIds: [1, 2],
-      keepRowIfEmpty: true,
     };
-    assert.deepEqual(filterAppIds([1, 2], settings), [1, 2]);
+    assert.deepEqual(filterAppIds([1, 2, 3], settings, [], 3), [3]);
   });
 
-  it("backfills extras to keep the requested visible count", () => {
+  it("backfills extras to keep the native visible count", () => {
     const settings = {
       ...DEFAULT_SETTINGS,
       hiddenAppIds: [2],
-      maxVisible: 3,
-      keepRowIfEmpty: false,
     };
-    assert.deepEqual(filterAppIds([1, 2, 3], settings, [4, 5]), [1, 3, 4]);
+    assert.deepEqual(filterAppIds([1, 2, 3], settings, [4, 5], 3), [1, 3, 4]);
+  });
+
+  it("can return empty when everything is filtered and extras are also hidden", () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      hiddenAppIds: [1, 2, 3, 4],
+    };
+    assert.deepEqual(filterAppIds([1, 2, 3], settings, [4], 3), []);
+  });
+
+  it("ignores overlapping extras and uses new library ids to reach target", () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      hiddenAppIds: [2, 3],
+    };
+    const stats = {
+      sourceKept: 0,
+      sourceHidden: 0,
+      extrasTotal: 0,
+      extrasOverlap: 0,
+      extrasNew: 0,
+      extrasKept: 0,
+      extrasHidden: 0,
+    };
+    // Source overlaps with extras; only 10..19 are new backfill candidates.
+    const extras = [1, 2, 3, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+    const result = filterAppIds([1, 2, 3], settings, extras, 5, stats);
+    assert.deepEqual(result, [1, 10, 11, 12, 13]);
+    assert.equal(stats.sourceKept, 1);
+    assert.equal(stats.extrasOverlap, 3);
+    assert.equal(stats.extrasKept, 4);
   });
 });
 

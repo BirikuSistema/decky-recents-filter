@@ -9,6 +9,11 @@ const STRINGS = {
     hideHeaderDesc: "Removes the label while keeping cover art in place",
     visibleGames: "Games in the row",
     showingOf: (shown: number, target: number) => `Showing ${shown} of ${target}`,
+    rowSizeHint: (n: number) =>
+      n > 0 ? `Keeps Steam’s row size (${n}) and backfills when you hide games` : "Keeps Steam’s native row size and backfills when you hide games",
+    cannotHideAllTitle: "Can't hide everything",
+    cannotHideAllBody:
+      "That would leave the Recently Played row empty. Show at least one game, or turn filters off.",
     minPlaytime: "Minimum playtime",
     minPlaytimeOff: "No minimum",
     minPlaytimeValue: (min: number) => `Hide games under ${min} min`,
@@ -62,6 +67,13 @@ const STRINGS = {
     hideHeaderDesc: "Elimina el texto manteniendo la posición de las portadas",
     visibleGames: "Juegos en la fila",
     showingOf: (shown: number, target: number) => `Mostrando ${shown} de ${target}`,
+    rowSizeHint: (n: number) =>
+      n > 0
+        ? `Mantiene el tamaño nativo de Steam (${n}) y rellena al ocultar juegos`
+        : "Mantiene el tamaño nativo de Steam y rellena al ocultar juegos",
+    cannotHideAllTitle: "No se puede ocultar todo",
+    cannotHideAllBody:
+      "Eso dejaría vacía la fila de jugados recientemente. Deja al menos un juego visible o desactiva los filtros.",
     minPlaytime: "Tiempo mínimo jugado",
     minPlaytimeOff: "Sin mínimo",
     minPlaytimeValue: (min: number) => `Oculta juegos con menos de ${min} min`,
