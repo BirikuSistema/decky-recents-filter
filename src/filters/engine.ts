@@ -1,4 +1,5 @@
 import { getOverview, getSteamRecentAppIds, listRecentlyPlayedAppIds } from "../steam/appOverview";
+import { preferArtworkShortcut } from "../steam/srmDedup";
 import { appInHiddenCollections } from "../steam/collections";
 import type { RecentsFilterSettings } from "../settings/schema";
 
@@ -70,13 +71,15 @@ export function filterAppIds(
   let extrasKept = 0;
   let extrasHidden = 0;
 
-  for (const id of appIds) {
+  for (const rawId of appIds) {
+    // SRM often duplicates a title: keep the sibling that has custom artwork.
+    const id = preferArtworkShortcut(rawId);
     if (seen.has(id)) continue;
-    seen.add(id);
-    if (!shouldShowApp(id, settings)) {
+    if (!shouldShowApp(rawId, settings) && !shouldShowApp(id, settings)) {
       sourceHidden += 1;
       continue;
     }
+    seen.add(id);
     sourceKept += 1;
     visible.push(id);
     if (visible.length >= goal) {
@@ -95,18 +98,19 @@ export function filterAppIds(
     }
   }
 
-  for (const id of extraIds) {
-    if (sourceSet.has(id)) {
+  for (const rawId of extraIds) {
+    const id = preferArtworkShortcut(rawId);
+    if (sourceSet.has(rawId) || sourceSet.has(id)) {
       extrasOverlap += 1;
       continue;
     }
     extrasNew += 1;
     if (seen.has(id)) continue;
-    seen.add(id);
-    if (!shouldShowApp(id, settings)) {
+    if (!shouldShowApp(rawId, settings) && !shouldShowApp(id, settings)) {
       extrasHidden += 1;
       continue;
     }
+    seen.add(id);
     extrasKept += 1;
     visible.push(id);
     if (visible.length >= goal) break;

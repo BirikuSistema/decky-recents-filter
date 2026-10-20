@@ -51,6 +51,7 @@ const STRINGS = {
     versionLabel: (v: string) => `Version ${v}`,
     checkUpdates: "Check for updates",
     checkingUpdates: "Checking…",
+    noUpdates: "No updates available",
     upToDate: "You're up to date",
     updateAvailable: (v: string) => `Update available: v${v}`,
     updateNow: (v: string) => `Update to v${v}`,
@@ -58,6 +59,7 @@ const STRINGS = {
     updateInstalling: (v: string) => `Installing v${v}…`,
     updateInstalled: (v: string) => `Updated to v${v}`,
     updateFailed: "Update failed. Try again later.",
+    updateFailedDetail: (detail: string) => `Update failed: ${detail}`,
   },
   es: {
     pluginName: "Recents Filter",
@@ -111,6 +113,7 @@ const STRINGS = {
     versionLabel: (v: string) => `Versión ${v}`,
     checkUpdates: "Buscar actualizaciones",
     checkingUpdates: "Buscando…",
+    noUpdates: "No hay actualizaciones",
     upToDate: "Estás al día",
     updateAvailable: (v: string) => `Actualización disponible: v${v}`,
     updateNow: (v: string) => `Actualizar a v${v}`,
@@ -118,6 +121,7 @@ const STRINGS = {
     updateInstalling: (v: string) => `Instalando v${v}…`,
     updateInstalled: (v: string) => `Actualizado a v${v}`,
     updateFailed: "La actualización falló. Inténtalo más tarde.",
+    updateFailedDetail: (detail: string) => `Falló la actualización: ${detail}`,
   },
 } as const;
 

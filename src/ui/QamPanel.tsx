@@ -1,5 +1,5 @@
 import { Navigation } from "@decky/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { t } from "../i18n";
 import { getCurrentSettings, subscribeSettings, updateSettings } from "../settings/store";
 import { PLAYTIME_STEPS, playtimeStepIndex, type RecentsFilterSettings } from "../settings/schema";
@@ -18,6 +18,8 @@ import { openCollectionsModal } from "./CollectionsModal";
 import { openHiddenAppsModal } from "./HiddenAppsModal";
 import { SafeActionRow, SafeButton, SafeRow, SafeSection, SafeSlider, SafeToggle } from "./safeUi";
 
+type UpdateBtnMode = "idle" | "checking" | "none" | "available" | "installing";
+
 export function QamPanel() {
   const text = t();
   const [settings, setSettings] = useState<RecentsFilterSettings>(getCurrentSettings);
@@ -25,20 +27,27 @@ export function QamPanel() {
   const [collections, setCollections] = useState<SteamCollectionInfo[]>(listHideableCollections);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(getCachedUpdateInfo);
   const [version, setVersion] = useState("…");
-  const [checking, setChecking] = useState(false);
-  const [installing, setInstalling] = useState(false);
+  const [updateMode, setUpdateMode] = useState<UpdateBtnMode>(() =>
+    getCachedUpdateInfo()?.hasUpdate ? "available" : "idle",
+  );
+  const noneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const unsubs = [
       subscribeSettings(() => setSettings(getCurrentSettings())),
       subscribeDiagnostics(() => setDiag(getDiagnostics())),
-      subscribeUpdateInfo(() => setUpdateInfo(getCachedUpdateInfo())),
+      subscribeUpdateInfo(() => {
+        const info = getCachedUpdateInfo();
+        setUpdateInfo(info);
+        if (info?.hasUpdate) setUpdateMode("available");
+      }),
     ];
     const timer = window.setInterval(() => setCollections(listHideableCollections()), 4000);
     void getInstalledVersion().then(setVersion);
     return () => {
       unsubs.forEach((unsub) => unsub());
       window.clearInterval(timer);
+      if (noneTimer.current) clearTimeout(noneTimer.current);
     };
   }, []);
 
@@ -66,43 +75,74 @@ export function QamPanel() {
       ? text.summaryActive(hiddenCollections, hiddenCount)
       : text.summaryIdle;
 
+  const flashNoUpdates = () => {
+    setUpdateMode("none");
+    if (noneTimer.current) clearTimeout(noneTimer.current);
+    noneTimer.current = setTimeout(() => {
+      setUpdateMode((mode) => (mode === "none" ? "idle" : mode));
+    }, 10000);
+  };
+
   const onCheckUpdates = async () => {
-    setChecking(true);
+    setUpdateMode("checking");
     try {
       const info = await checkForUpdate({ silent: true });
       setUpdateInfo(info);
       if (info.currentVersion) setVersion(info.currentVersion);
-    } finally {
-      setChecking(false);
+      if (info.hasUpdate && info.latestVersion) {
+        setUpdateMode("available");
+      } else {
+        flashNoUpdates();
+      }
+    } catch {
+      flashNoUpdates();
     }
   };
 
   const onInstallUpdate = async () => {
-    setInstalling(true);
+    setUpdateMode("installing");
     try {
-      await installAvailableUpdate();
+      const result = await installAvailableUpdate();
       const v = await getInstalledVersion();
       setVersion(v);
-    } finally {
-      setInstalling(false);
+      if (result.ok) {
+        setUpdateInfo((prev) =>
+          prev
+            ? { ...prev, hasUpdate: false, currentVersion: v, latestVersion: v }
+            : prev,
+        );
+        flashNoUpdates();
+      } else {
+        // Keep "Update to…" so the user can retry after reading the error toast.
+        setUpdateMode("available");
+      }
+    } catch {
+      setUpdateMode("available");
     }
+  };
+
+  const updateButtonLabel = (() => {
+    switch (updateMode) {
+      case "checking":
+        return text.checkingUpdates;
+      case "none":
+        return text.noUpdates;
+      case "available":
+        return text.updateNow(updateInfo?.latestVersion || "");
+      case "installing":
+        return text.updateInstalling(updateInfo?.latestVersion || "");
+      default:
+        return text.checkUpdates;
+    }
+  })();
+
+  const onUpdateButton = () => {
+    if (updateMode === "available") void onInstallUpdate();
+    else if (updateMode === "idle" || updateMode === "none") void onCheckUpdates();
   };
 
   return (
     <>
-      {updateInfo?.hasUpdate && updateInfo.latestVersion && (
-        <SafeSection>
-          <SafeRow>
-            <div style={{ opacity: 0.85, fontSize: 13, marginBottom: 6 }}>
-              {text.updateAvailable(updateInfo.latestVersion)}
-            </div>
-            <SafeButton disabled={installing} onClick={() => void onInstallUpdate()}>
-              {text.updateNow(updateInfo.latestVersion)}
-            </SafeButton>
-          </SafeRow>
-        </SafeSection>
-      )}
-
       <SafeSection>
         {diag.status === "crashed" && (
           <SafeRow>
@@ -197,10 +237,12 @@ export function QamPanel() {
         <SafeRow>
           <div style={{ opacity: 0.55, fontSize: 12, marginBottom: 6 }}>
             {text.versionLabel(version)}
-            {updateInfo && !updateInfo.hasUpdate && !updateInfo.error ? ` · ${text.upToDate}` : ""}
           </div>
-          <SafeButton disabled={checking || installing} onClick={() => void onCheckUpdates()}>
-            {checking ? text.checkingUpdates : text.checkUpdates}
+          <SafeButton
+            disabled={updateMode === "checking" || updateMode === "installing"}
+            onClick={onUpdateButton}
+          >
+            {updateButtonLabel}
           </SafeButton>
         </SafeRow>
       </SafeSection>

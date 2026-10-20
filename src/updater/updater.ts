@@ -6,15 +6,26 @@ export type UpdateInfo = {
   currentVersion: string;
   latestVersion: string | null;
   downloadUrl: string | null;
+  assetApiUrl?: string | null;
   htmlUrl: string | null;
   error?: string | null;
 };
 
+export type InstallResult = {
+  ok: boolean;
+  error?: string;
+  stage?: string;
+  version?: string;
+  method?: string;
+};
+
 const checkForUpdateBackend = callable<[], UpdateInfo>("check_for_update");
-const installUpdateBackend = callable<[downloadUrl: string], { ok: boolean; error?: string }>(
-  "install_update",
-);
+const installUpdateBackend = callable<
+  [payload: { downloadUrl: string; assetApiUrl?: string | null }],
+  InstallResult
+>("install_update");
 const getPluginVersionBackend = callable<[], string>("get_plugin_version");
+const getUpdateDebugLogBackend = callable<[], string>("get_update_debug_log");
 
 let cached: UpdateInfo | null = null;
 const listeners = new Set<() => void>();
@@ -79,9 +90,25 @@ export async function checkForUpdate(opts?: { silent?: boolean }): Promise<Updat
   }
 }
 
-export async function installAvailableUpdate(): Promise<boolean> {
+/** Prefer Decky's own installer (unloads plugin cleanly). Falls back to false. */
+async function tryDeckyNativeInstall(url: string, version: string): Promise<boolean> {
+  try {
+    const backend = (globalThis as any).DeckyBackend;
+    if (!backend?.call && !backend?.callable) return false;
+    // InstallType.UPDATE = 2; hash=false skips checksum.
+    await backend.call("utilities/install_plugin", url, "Recents Filter", version, false, 2);
+    return true;
+  } catch (err) {
+    console.error("[RecentsFilter] Decky native install failed", err);
+    return false;
+  }
+}
+
+export async function installAvailableUpdate(): Promise<InstallResult> {
   const info = cached ?? (await checkForUpdate({ silent: true }));
-  if (!info.hasUpdate || !info.downloadUrl) return false;
+  if (!info.hasUpdate || !info.downloadUrl) {
+    return { ok: false, error: "no_download_url", stage: "precheck" };
+  }
 
   try {
     toaster.toast({
@@ -93,32 +120,52 @@ export async function installAvailableUpdate(): Promise<boolean> {
   }
 
   try {
-    const result = await installUpdateBackend(info.downloadUrl);
+    if (await tryDeckyNativeInstall(info.downloadUrl, info.latestVersion || "latest")) {
+      cached = {
+        ...info,
+        hasUpdate: false,
+        currentVersion: info.latestVersion || info.currentVersion,
+      };
+      notify();
+      return { ok: true, method: "decky_native", version: info.latestVersion || undefined };
+    }
+
+    const result = await installUpdateBackend({
+      downloadUrl: info.downloadUrl,
+      assetApiUrl: info.assetApiUrl ?? null,
+    });
+
     if (!result?.ok) {
+      let detail = result?.error || "unknown";
+      try {
+        const log = await getUpdateDebugLogBackend();
+        if (log) console.log("[RecentsFilter] update debug log\n", log);
+      } catch {
+        /* ignore */
+      }
       try {
         toaster.toast({
           title: t().pluginName,
-          body: t().updateFailed,
+          body: t().updateFailedDetail(detail),
         });
       } catch {
         /* ignore */
       }
-      return false;
+      return result || { ok: false, error: detail };
     }
 
     try {
       toaster.toast({
         title: t().pluginName,
-        body: t().updateInstalled(info.latestVersion || ""),
+        body: t().updateInstalled(result.version || info.latestVersion || ""),
       });
     } catch {
       /* ignore */
     }
 
-    // Hot-reload the plugin frontend so the new bundle is picked up.
     try {
       const loader = (globalThis as any).DeckyPluginLoader;
-      await loader?.importPlugin?.("Recents Filter", info.latestVersion ?? undefined);
+      await loader?.importPlugin?.("Recents Filter", result.version || info.latestVersion || undefined);
     } catch (err) {
       console.error("[RecentsFilter] hot-reload after update failed", err);
     }
@@ -126,21 +173,22 @@ export async function installAvailableUpdate(): Promise<boolean> {
     cached = {
       ...info,
       hasUpdate: false,
-      currentVersion: info.latestVersion || info.currentVersion,
+      currentVersion: result.version || info.latestVersion || info.currentVersion,
     };
     notify();
-    return true;
+    return result;
   } catch (err) {
     console.error("[RecentsFilter] install update failed", err);
+    const detail = String(err);
     try {
       toaster.toast({
         title: t().pluginName,
-        body: t().updateFailed,
+        body: t().updateFailedDetail(detail),
       });
     } catch {
       /* ignore */
     }
-    return false;
+    return { ok: false, error: detail, stage: "exception" };
   }
 }
 

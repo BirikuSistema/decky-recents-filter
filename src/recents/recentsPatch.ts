@@ -5,6 +5,7 @@ import {
   getSteamRecentAppIds,
   listRecentlyPlayedAppIds,
 } from "../steam/appOverview";
+import { invalidateSrmDedupCache } from "../steam/srmDedup";
 import { resetDiagnostics, setDiagnostics } from "./diagnostics";
 import { findInReactTree, patchElementType, releaseAllPatches } from "./reactTree";
 import { notifyRecentsRefresh, subscribeRecentsRefresh } from "./refreshBus";
@@ -227,6 +228,7 @@ function applyFilterToHolder(holder: { node: any; key: "games" | "apps" }): bool
   }
 
   const extras = listRecentlyPlayedAppIds(Math.max(120, target * 6));
+  invalidateSrmDedupCache();
   const filtered = filterAppIds(sourceIds, settings, extras, target);
 
   const forceWrite = appliedRefreshGeneration !== refreshGeneration;
