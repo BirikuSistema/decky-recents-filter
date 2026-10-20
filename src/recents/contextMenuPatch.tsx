@@ -7,6 +7,7 @@ import {
   MenuItem,
 } from "@decky/ui";
 import type { FC } from "react";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
 import { decideAppVisibility } from "../filters/engine";
 import { t } from "../i18n";
 import { getCurrentSettings, setAppHiddenFromRecents } from "../settings/store";
@@ -27,11 +28,7 @@ function isOpeningAppContextMenu(items: any[]): boolean {
 
 function resolveAppId(fallback: number, items: any[]): number {
   try {
-    const owner = items.find(
-      (x: any) =>
-        x?._owner?.pendingProps?.overview?.appid &&
-        x._owner.pendingProps.overview.appid !== fallback,
-    );
+    const owner = items.find((x: any) => x?._owner?.pendingProps?.overview?.appid);
     if (owner?._owner?.pendingProps?.overview?.appid) {
       return Number(owner._owner.pendingProps.overview.appid);
     }
@@ -51,11 +48,17 @@ function isHiddenInRecents(appId: number): boolean {
 
 function spliceRecentsItem(children: any[], appId: number): void {
   if (!Array.isArray(children) || !isRenderable(MenuItem) || !appId) return;
+  if (!getCurrentSettings().enabled) {
+    const existingOff = children.findIndex((item) => item?.key === "recents-filter-toggle");
+    if (existingOff !== -1) children.splice(existingOff, 1);
+    return;
+  }
 
   const existing = children.findIndex((item) => item?.key === "recents-filter-toggle");
   if (existing !== -1) children.splice(existing, 1);
 
   const hiddenNow = isHiddenInRecents(appId);
+  const Icon = hiddenNow ? FaEye : FaEyeSlash;
   const item = (
     <MenuItem
       key="recents-filter-toggle"
@@ -64,7 +67,10 @@ function spliceRecentsItem(children: any[], appId: number): void {
         void setAppHiddenFromRecents(appId, hide);
       }}
     >
-      {hiddenNow ? t().menuShow : t().menuHide}
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <Icon style={{ opacity: 0.85 }} />
+        {hiddenNow ? t().menuShow : t().menuHide}
+      </span>
     </MenuItem>
   );
 

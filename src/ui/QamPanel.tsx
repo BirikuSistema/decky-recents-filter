@@ -10,12 +10,16 @@ import {
   type RecentsFilterSettings,
 } from "../settings/schema";
 import { getDiagnostics, subscribeDiagnostics } from "../recents/diagnostics";
-import {
-  holdRecentsRefresh,
-  requestRecentsRefresh,
-  resetCrashState,
-} from "../recents/recentsPatch";
+import { requestRecentsRefresh, resetCrashState } from "../recents/recentsPatch";
 import { listHideableCollections, type SteamCollectionInfo } from "../steam/collections";
+import {
+  checkForUpdate,
+  getCachedUpdateInfo,
+  getInstalledVersion,
+  installAvailableUpdate,
+  subscribeUpdateInfo,
+  type UpdateInfo,
+} from "../updater/updater";
 import { openCollectionsModal } from "./CollectionsModal";
 import { openHiddenAppsModal } from "./HiddenAppsModal";
 import { SafeActionRow, SafeButton, SafeRow, SafeSection, SafeSlider, SafeToggle } from "./safeUi";
@@ -25,27 +29,33 @@ export function QamPanel() {
   const [settings, setSettings] = useState<RecentsFilterSettings>(getCurrentSettings);
   const [diag, setDiag] = useState(getDiagnostics);
   const [collections, setCollections] = useState<SteamCollectionInfo[]>(listHideableCollections);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(getCachedUpdateInfo);
+  const [version, setVersion] = useState("…");
+  const [checking, setChecking] = useState(false);
+  const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
     const unsubs = [
-      holdRecentsRefresh(),
       subscribeSettings(() => setSettings(getCurrentSettings())),
       subscribeDiagnostics(() => setDiag(getDiagnostics())),
+      subscribeUpdateInfo(() => setUpdateInfo(getCachedUpdateInfo())),
     ];
     const timer = window.setInterval(() => setCollections(listHideableCollections()), 4000);
+    void getInstalledVersion().then(setVersion);
     return () => {
       unsubs.forEach((unsub) => unsub());
       window.clearInterval(timer);
     };
   }, []);
 
-  const shownCollections = collections.filter(
-    (collection) => !settings.hiddenCollectionIds.includes(collection.id),
+  const hiddenCollections = settings.hiddenCollectionIds.filter((id) =>
+    collections.some((collection) => collection.id === id),
   ).length;
+  const shownCollections = Math.max(0, collections.length - hiddenCollections);
   const collectionSummary =
     collections.length === 0
       ? text.collectionsNone
-      : shownCollections === collections.length
+      : hiddenCollections === 0
         ? text.collectionsAll
         : text.collectionsSome(shownCollections, collections.length);
 
@@ -60,9 +70,48 @@ export function QamPanel() {
       ? text.showingOf(diag.lastVisibleCount, settings.maxVisible)
       : undefined;
   const off = !settings.enabled;
+  const summary =
+    hiddenCollections > 0 || hiddenCount > 0
+      ? text.summaryActive(hiddenCollections, hiddenCount)
+      : text.summaryIdle;
+
+  const onCheckUpdates = async () => {
+    setChecking(true);
+    try {
+      const info = await checkForUpdate({ silent: true });
+      setUpdateInfo(info);
+      if (info.currentVersion) setVersion(info.currentVersion);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const onInstallUpdate = async () => {
+    setInstalling(true);
+    try {
+      await installAvailableUpdate();
+      const v = await getInstalledVersion();
+      setVersion(v);
+    } finally {
+      setInstalling(false);
+    }
+  };
 
   return (
     <>
+      {updateInfo?.hasUpdate && updateInfo.latestVersion && (
+        <SafeSection>
+          <SafeRow>
+            <div style={{ opacity: 0.85, fontSize: 13, marginBottom: 6 }}>
+              {text.updateAvailable(updateInfo.latestVersion)}
+            </div>
+            <SafeButton disabled={installing} onClick={() => void onInstallUpdate()}>
+              {text.updateNow(updateInfo.latestVersion)}
+            </SafeButton>
+          </SafeRow>
+        </SafeSection>
+      )}
+
       <SafeSection>
         {diag.status === "crashed" && (
           <SafeRow>
@@ -70,11 +119,23 @@ export function QamPanel() {
           </SafeRow>
         )}
         <SafeRow>
+          <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>{summary}</div>
+        </SafeRow>
+        <SafeRow>
           <SafeToggle
             label={text.enable}
             description={diag.status === "crashed" ? text.crashed : text.enableDesc}
             checked={settings.enabled}
-            onChange={(checked) => updateSettings({ enabled: checked })}
+            onChange={(checked) => void updateSettings({ enabled: checked })}
+          />
+        </SafeRow>
+        <SafeRow>
+          <SafeToggle
+            label={text.hideHeader}
+            description={text.hideHeaderDesc}
+            checked={settings.hideRecentsHeader}
+            disabled={off}
+            onChange={(checked) => void updateSettings({ hideRecentsHeader: checked })}
           />
         </SafeRow>
         <SafeRow>
@@ -86,7 +147,7 @@ export function QamPanel() {
             max={MAX_VISIBLE}
             showValue
             disabled={off}
-            onChange={(value) => updateSettings({ maxVisible: value })}
+            onChange={(value) => void updateSettings({ maxVisible: value })}
           />
         </SafeRow>
       </SafeSection>
@@ -95,7 +156,11 @@ export function QamPanel() {
         <SafeRow>
           <SafeActionRow
             label={text.collections}
-            description={collectionSummary}
+            description={
+              hiddenCollections > 0
+                ? `${collectionSummary} · ${text.collectionsHiddenCount(hiddenCollections)}`
+                : collectionSummary
+            }
             action={text.edit}
             disabled={off}
             onClick={() => openCollectionsModal()}
@@ -111,7 +176,7 @@ export function QamPanel() {
             disabled={off}
             onChange={(index) => {
               const clamped = Math.max(0, Math.min(PLAYTIME_STEPS.length - 1, Math.round(index)));
-              updateSettings({ minPlaytimeMinutes: PLAYTIME_STEPS[clamped] });
+              void updateSettings({ minPlaytimeMinutes: PLAYTIME_STEPS[clamped] });
             }}
           />
         </SafeRow>
@@ -120,6 +185,7 @@ export function QamPanel() {
             label={text.hiddenByStart}
             description={hiddenCount > 0 ? text.gameCount(hiddenCount) : text.hiddenNone}
             action={text.view}
+            disabled={off}
             onClick={() => openHiddenAppsModal()}
           />
         </SafeRow>
@@ -131,7 +197,6 @@ export function QamPanel() {
             onClick={() => {
               setCollections(listHideableCollections());
               requestRecentsRefresh();
-              // Closing the panel brings the home to the front; it remounts once more on close.
               try {
                 Navigation.CloseSideMenus?.();
               } catch {
@@ -140,6 +205,15 @@ export function QamPanel() {
             }}
           >
             {text.refresh}
+          </SafeButton>
+        </SafeRow>
+        <SafeRow>
+          <div style={{ opacity: 0.55, fontSize: 12, marginBottom: 6 }}>
+            {text.versionLabel(version)}
+            {updateInfo && !updateInfo.hasUpdate && !updateInfo.error ? ` · ${text.upToDate}` : ""}
+          </div>
+          <SafeButton disabled={checking || installing} onClick={() => void onCheckUpdates()}>
+            {checking ? text.checkingUpdates : text.checkUpdates}
           </SafeButton>
         </SafeRow>
       </SafeSection>

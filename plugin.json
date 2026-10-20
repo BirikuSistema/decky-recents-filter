@@ -5,7 +5,7 @@
   "api_version": 1,
   "publish": {
     "tags": ["library", "home", "recents", "filter", "quality-of-life"],
-    "description": "Hide browsers, launchers, web apps and other utilities from the SteamOS Recently Played row using selectable filters.",
-    "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
+    "description": "Filter the SteamOS Recently Played row: hide collections, set a playtime minimum, hide games from the Start menu, and optionally hide the row title. Updates from GitHub Releases.",
+    "image": "https://opengraph.githubassets.com/1/BirikuSistema/decky-recents-filter"
   }
 }

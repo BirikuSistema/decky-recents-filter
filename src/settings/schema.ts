@@ -1,4 +1,4 @@
-export const SETTINGS_VERSION = 3;
+export const SETTINGS_VERSION = 4;
 
 export const PLAYTIME_STEPS = [0, 1, 3, 5, 10, 20, 30] as const;
 export const MIN_VISIBLE = 5;
@@ -8,6 +8,7 @@ export const DEFAULT_VISIBLE = 12;
 export interface RecentsFilterSettings {
   version: number;
   enabled: boolean;
+  hideRecentsHeader: boolean;
   minPlaytimeMinutes: number;
   maxVisible: number;
   keepRowIfEmpty: boolean;
@@ -19,6 +20,7 @@ export interface RecentsFilterSettings {
 export const DEFAULT_SETTINGS: RecentsFilterSettings = {
   version: SETTINGS_VERSION,
   enabled: true,
+  hideRecentsHeader: false,
   minPlaytimeMinutes: 0,
   maxVisible: DEFAULT_VISIBLE,
   keepRowIfEmpty: true,
@@ -62,6 +64,7 @@ export function normalizeSettings(
   return {
     ...DEFAULT_SETTINGS,
     enabled: input.enabled !== false,
+    hideRecentsHeader: Boolean((input as RecentsFilterSettings).hideRecentsHeader),
     keepRowIfEmpty: input.keepRowIfEmpty !== false,
     version: SETTINGS_VERSION,
     minPlaytimeMinutes: snapPlaytimeMinutes(Number(input.minPlaytimeMinutes) || 0),

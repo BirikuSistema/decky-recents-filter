@@ -3,12 +3,21 @@ import { getCurrentSettings, subscribeSettings } from "../settings/store";
 import { keepLibraryApps, listRecentlyPlayedAppIds } from "../steam/appOverview";
 import { resetDiagnostics, setDiagnostics } from "./diagnostics";
 import { findInReactTree, patchElementType, releaseAllPatches } from "./reactTree";
-import { setNativeRecents } from "./snapshot";
+import { notifyRecentsRefresh, subscribeRecentsRefresh } from "./refreshBus";
 
 type PatchHandle = { uninstall: () => void };
 
 const CRASH_WINDOW_MS = 10000;
 const CRASH_THRESHOLD = 5;
+const HEADER_STYLE_ID = "recents-filter-header-style";
+
+/** Steam CSS module hashes for RecentGamesHeader / RecentGamesHeaderLabel (stable across recent builds). */
+const HEADER_CLASS_FRAGMENTS = [
+  "RecentGamesHeader",
+  "_35iRep_MLGWeAmkLbeny7R",
+  "_1KKWf5v5FhqL_NrtrGZPzG",
+  "gamepadhomerecentgames_RecentGamesHeader",
+];
 
 let silentPatchFailures = 0;
 let crashed = false;
@@ -73,11 +82,129 @@ function findGamesHolder(tree: unknown): { node: any; key: "games" | "apps" } | 
   return null;
 }
 
+function classNameOf(node: any): string {
+  const raw = node?.props?.className ?? node?.props?.class;
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw)) return raw.filter((x) => typeof x === "string").join(" ");
+  return "";
+}
+
+function isHeaderNode(node: any): boolean {
+  const cls = classNameOf(node);
+  if (!cls) return false;
+  return HEADER_CLASS_FRAGMENTS.some((frag) => cls.includes(frag));
+}
+
+/** Hide the "Recently Played" label while keeping its layout height. */
+function applyHeaderVisibility(tree: unknown): void {
+  const settings = getCurrentSettings();
+  const hide = settings.enabled && settings.hideRecentsHeader;
+  try {
+    const headers: any[] = [];
+    const walk = (node: unknown, depth: number) => {
+      if (!node || typeof node !== "object" || depth > 12) return;
+      if (isHeaderNode(node)) headers.push(node);
+      const rec = node as Record<string, unknown>;
+      const children = (rec as any)?.props?.children;
+      if (Array.isArray(children)) {
+        for (const child of children) walk(child, depth + 1);
+      } else if (children) {
+        walk(children, depth + 1);
+      }
+    };
+    walk(tree, 0);
+    for (const header of headers) {
+      const prev = header.props.style && typeof header.props.style === "object" ? header.props.style : {};
+      if (hide) {
+        header.props.style = {
+          ...prev,
+          visibility: "hidden",
+          pointerEvents: "none",
+        };
+      } else if (prev.visibility === "hidden") {
+        const next = { ...prev };
+        delete next.visibility;
+        delete next.pointerEvents;
+        header.props.style = next;
+      }
+    }
+  } catch (err) {
+    log("header visibility failed", err);
+  }
+}
+
+function gamepadDocuments(): Document[] {
+  const docs: Document[] = [];
+  const seen = new Set<Document>();
+  const push = (doc: Document | null | undefined) => {
+    if (!doc || seen.has(doc)) return;
+    seen.add(doc);
+    docs.push(doc);
+  };
+  try {
+    push(document);
+  } catch {
+    /* ignore */
+  }
+  try {
+    const win =
+      (globalThis as any)?.SteamUIStore?.WindowStore?.GamepadUIMainWindowInstance?.BrowserWindow ??
+      (globalThis as any)?.Router?.WindowStore?.GamepadUIMainWindowInstance?.BrowserWindow ??
+      null;
+    push(win?.document);
+  } catch {
+    /* ignore */
+  }
+  return docs;
+}
+
+function syncHeaderCss(): void {
+  const settings = getCurrentSettings();
+  const hide = settings.enabled && settings.hideRecentsHeader;
+  const css = hide
+    ? `
+      [class*="RecentGamesHeader"],
+      [class*="_35iRep_MLGWeAmkLbeny7R"],
+      [class*="gamepadhomerecentgames_RecentGamesHeader"] {
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+    `
+    : "";
+
+  for (const doc of gamepadDocuments()) {
+    try {
+      let el = doc.getElementById(HEADER_STYLE_ID) as HTMLStyleElement | null;
+      if (!css) {
+        el?.remove();
+        continue;
+      }
+      if (!el) {
+        el = doc.createElement("style");
+        el.id = HEADER_STYLE_ID;
+        doc.head?.appendChild(el);
+      }
+      if (el.textContent !== css) el.textContent = css;
+    } catch (err) {
+      log("header css failed", err);
+    }
+  }
+}
+
+function clearHeaderCss(): void {
+  for (const doc of gamepadDocuments()) {
+    try {
+      doc.getElementById(HEADER_STYLE_ID)?.remove();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 function applyFilterToHolder(holder: { node: any; key: "games" | "apps" }): boolean {
   const nativeIds = asAppIds(holder.node.props[holder.key]);
   if (!nativeIds) return false;
 
-  setNativeRecents(nativeIds);
   const settings = getCurrentSettings();
   if (!settings.enabled) {
     setDiagnostics({
@@ -95,7 +222,7 @@ function applyFilterToHolder(holder: { node: any; key: "games" | "apps" }): bool
   if (nativeIds.length !== libraryNative.length) {
     log("dropped non-library entries", nativeIds.filter((id) => !libraryNative.includes(id)));
   }
-  if (filtered.length === 0) return true;
+
   setDiagnostics({
     status: "ok",
     error: null,
@@ -113,6 +240,7 @@ function applyFilterToHolder(holder: { node: any; key: "games" | "apps" }): bool
 }
 
 function tryFilterTree(tree: unknown): boolean {
+  applyHeaderVisibility(tree);
   const holder = findGamesHolder(tree);
   if (!holder) return false;
   return applyFilterToHolder(holder);
@@ -189,54 +317,24 @@ export function resetCrashState(): void {
   crashWindowStart = 0;
   silentPatchFailures = 0;
   resetDiagnostics();
+  notifyRecentsRefresh();
 }
 
-function remountHome(): void {
-  try {
-    const win: any = globalThis;
-    if (win?.history?.state !== undefined) {
-      win.history.replaceState(win.history.state, "", win.location.href);
-      win.dispatchEvent(new Event("popstate"));
-    }
-  } catch (err) {
-    log("remount failed", err);
-  }
-}
-
-let uiHolds = 0;
-let pendingRemount = false;
-let remountTimer: ReturnType<typeof setTimeout> | null = null;
-
-function scheduleRemount(delayMs: number): void {
-  if (remountTimer) clearTimeout(remountTimer);
-  remountTimer = setTimeout(() => {
-    remountTimer = null;
-    // Remount right away; if our panel/modal is covering the home, repeat once
-    // when it closes (see holdRecentsRefresh) in case Steam skipped the render.
-    pendingRemount = uiHolds > 0;
-    refreshGeneration += 1;
-    remountHome();
-  }, delayMs);
-}
-
-/** While the QAM panel or one of our modals is open, remember to remount again on close. */
+/** Kept for API compatibility — QAM/modals no longer need to gate remounts. */
 export function holdRecentsRefresh(): () => void {
-  uiHolds += 1;
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    uiHolds = Math.max(0, uiHolds - 1);
-    if (uiHolds === 0 && pendingRemount) scheduleRemount(250);
-  };
+  return () => undefined;
 }
 
 export function requestRecentsRefresh(): void {
-  if (remountTimer) clearTimeout(remountTimer);
-  remountTimer = null;
-  pendingRemount = uiHolds > 0;
   refreshGeneration += 1;
-  remountHome();
+  syncHeaderCss();
+  notifyRecentsRefresh();
+  // Soft fallback: ask Decky's router to re-render if nothing is subscribed yet.
+  try {
+    (globalThis as any).__ROUTER_HOOK_INSTANCE?.routerState?.notifyUpdate?.();
+  } catch {
+    /* ignore */
+  }
 }
 
 export function installRecentsFilter(routerHook: any): PatchHandle | null {
@@ -246,6 +344,7 @@ export function installRecentsFilter(routerHook: any): PatchHandle | null {
   }
 
   const uninstallErrorTrap = installGlobalErrorTrap();
+  syncHeaderCss();
 
   const patchFn = (props: { children?: unknown }) => {
     try {
@@ -307,8 +406,14 @@ export function installRecentsFilter(routerHook: any): PatchHandle | null {
 
   log("installed");
 
-  // Wait for the context menu / modal that triggered the change to finish closing.
-  const unsubSettings = subscribeSettings(() => scheduleRemount(350));
+  const unsubSettings = subscribeSettings(() => {
+    refreshGeneration += 1;
+    syncHeaderCss();
+    notifyRecentsRefresh();
+  });
+  const unsubRefresh = subscribeRecentsRefresh(() => {
+    /* generation already bumped by requestRecentsRefresh / settings */
+  });
 
   return {
     uninstall() {
@@ -317,12 +422,11 @@ export function installRecentsFilter(routerHook: any): PatchHandle | null {
       } catch {
         /* ignore */
       }
-      if (remountTimer) clearTimeout(remountTimer);
-      remountTimer = null;
-      pendingRemount = false;
       unsubSettings();
+      unsubRefresh();
       releaseAllPatches();
       uninstallErrorTrap();
+      clearHeaderCss();
       resetCrashState();
       log("uninstalled");
     },

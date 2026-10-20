@@ -4,6 +4,7 @@ import { FaFilter } from "react-icons/fa";
 import { loadSettings } from "./settings/store";
 import { installContextMenuPatch } from "./recents/contextMenuPatch";
 import { installRecentsFilter } from "./recents/recentsPatch";
+import { scheduleStartupUpdateCheck } from "./updater/updater";
 import { QamPanel } from "./ui/QamPanel";
 
 export default definePlugin(() => {
@@ -30,6 +31,7 @@ export default definePlugin(() => {
       } catch (err) {
         console.error("[RecentsFilter] failed to install context menu patch", err);
       }
+      scheduleStartupUpdateCheck();
     });
 
   const titleClass = (staticClasses as { Title?: string } | undefined)?.Title;

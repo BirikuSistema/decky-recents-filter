@@ -4,6 +4,25 @@ export interface SteamCollectionInfo {
   count: number;
 }
 
+/** Internal Steam / GamepadUI collections that must never appear as user toggles. */
+const SYSTEM_COLLECTION_IDS = new Set([
+  "local-install",
+  "type-music",
+  "uncategorized",
+  "hidden",
+  "recent",
+  "recent-games",
+  "local-played",
+  "deck-games",
+  "all-games",
+  "type-games",
+  "type-software",
+  "type-tools",
+  "type-videos",
+  "type-demos",
+  "shared-library",
+]);
+
 function appCount(collection: any): number {
   const list = collection?.visibleApps ?? collection?.allApps;
   const n = Number(Array.isArray(list) ? list.length : collection?.apps?.size ?? 0);
@@ -49,6 +68,13 @@ function asCollectionList(raw: unknown): any[] {
   return [];
 }
 
+function isSystemCollection(id: string): boolean {
+  if (!id) return true;
+  if (SYSTEM_COLLECTION_IDS.has(id)) return true;
+  if (id.startsWith("type-")) return true;
+  return false;
+}
+
 function collectionFromStore(id: string): any | null {
   const s = store();
   if (!s || !id) return null;
@@ -77,7 +103,7 @@ export function listHideableCollections(): SteamCollectionInfo[] {
     const out: SteamCollectionInfo[] = [];
     for (const collection of asCollectionList(raw)) {
       const id = asId(collection?.id ?? collection?.m_strId ?? collection?.strId);
-      if (!id || seen.has(id)) continue;
+      if (!id || seen.has(id) || isSystemCollection(id)) continue;
       seen.add(id);
       out.push({ id, name: asName(collection, id), count: appCount(collection) });
     }

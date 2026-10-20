@@ -89,19 +89,45 @@ export function toggleStringInList(
   return [...set];
 }
 
+/**
+ * Hide/show a single app from the Start menu.
+ * shownAppIds is only used as an exception for apps that would otherwise be
+ * hidden by a collection — never as a permanent "always show" pin.
+ */
 export async function setAppHiddenFromRecents(
   appId: number,
   hide: boolean,
 ): Promise<RecentsFilterSettings> {
+  const id = Math.floor(Number(appId));
+  if (!Number.isFinite(id) || id <= 0) return current;
+
   if (hide) {
-    const hiddenByCollection = appInHiddenCollections(appId, current.hiddenCollectionIds);
+    const hiddenByCollection = appInHiddenCollections(id, current.hiddenCollectionIds);
     return updateSettings({
-      shownAppIds: toggleIdInList(current.shownAppIds, appId, false),
-      hiddenAppIds: toggleIdInList(current.hiddenAppIds, appId, !hiddenByCollection),
+      shownAppIds: toggleIdInList(current.shownAppIds, id, false),
+      // Only add to the manual denylist when the collection filter would not already hide it.
+      hiddenAppIds: toggleIdInList(current.hiddenAppIds, id, !hiddenByCollection),
     });
   }
+
+  const stillHiddenByCollection = appInHiddenCollections(id, current.hiddenCollectionIds);
   return updateSettings({
-    hiddenAppIds: toggleIdInList(current.hiddenAppIds, appId, false),
-    shownAppIds: toggleIdInList(current.shownAppIds, appId, true),
+    hiddenAppIds: toggleIdInList(current.hiddenAppIds, id, false),
+    shownAppIds: toggleIdInList(current.shownAppIds, id, stillHiddenByCollection),
+  });
+}
+
+/** Toggle a collection and prune orphaned shownAppIds exceptions. */
+export async function setCollectionHidden(
+  collectionId: string,
+  hide: boolean,
+): Promise<RecentsFilterSettings> {
+  const nextHidden = toggleStringInList(current.hiddenCollectionIds, collectionId, hide);
+  const nextShown = hide
+    ? current.shownAppIds
+    : current.shownAppIds.filter((appId) => appInHiddenCollections(appId, nextHidden));
+  return updateSettings({
+    hiddenCollectionIds: nextHidden,
+    shownAppIds: nextShown,
   });
 }

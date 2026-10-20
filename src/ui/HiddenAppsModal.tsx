@@ -25,6 +25,7 @@ function HiddenAppsContent({ closeModal }: { closeModal?: () => void }) {
           <SafeToggle
             key={appId}
             label={getAppName(appId)}
+            description={text.hiddenManual}
             checked={!hidden.includes(appId)}
             separator={index === sorted.length - 1 ? "none" : "standard"}
             onChange={(show) => void setAppHiddenFromRecents(appId, !show)}

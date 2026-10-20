@@ -1,6 +1,5 @@
 import { DialogBody, DialogBodyText, DialogHeader, Focusable, ModalRoot, showModal } from "@decky/ui";
-import { useEffect, type ReactNode } from "react";
-import { holdRecentsRefresh } from "../recents/recentsPatch";
+import type { ReactNode } from "react";
 import { isRenderable } from "./safeUi";
 
 export function ListModalFrame({
@@ -14,8 +13,6 @@ export function ListModalFrame({
   closeModal?: () => void;
   children: ReactNode;
 }) {
-  useEffect(() => holdRecentsRefresh(), []);
-
   const header = isRenderable(DialogHeader) ? (
     <DialogHeader>{title}</DialogHeader>
   ) : (
