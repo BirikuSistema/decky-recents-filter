@@ -17,17 +17,3 @@ Steam sigue registrando las sesiones. El plugin solo oculta tiles en esa fila.
 
 1. Descarga el ZIP de la [última release](https://github.com/BirikuSistema/decky-recents-filter/releases/latest).
 2. Decky → Ajustes → Developer → Install Plugin from ZIP.
-
-## Desarrollo
-
-```bash
-pnpm i
-pnpm test
-pnpm run build
-```
-
-Al publicar un tag `vX.Y.Z`, GitHub Actions compila el plugin y crea la release con el ZIP listo para Decky.
-
-## Licencia
-
-BSD-3-Clause
