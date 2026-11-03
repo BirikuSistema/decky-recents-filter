@@ -75,7 +75,7 @@ Las releases se publican automáticamente al crear un tag `v*` (workflow de GitH
 
 ## Licencia
 
-[BSD-3-Clause](LICENSE) — basado en la plantilla de Steam Deck Homebrew.
+[MIT](LICENSE) para el código de este plugin. La plantilla original de Steam Deck Homebrew se conserva bajo BSD-3-Clause en el mismo archivo.
 
 ## Enlaces
 
