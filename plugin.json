@@ -4,8 +4,8 @@
   "flags": [],
   "api_version": 1,
   "publish": {
-    "tags": ["library", "home", "recents", "filter", "quality-of-life"],
-    "description": "Filter the SteamOS Recently Played row: hide collections, set a playtime minimum, hide games from the Start menu, and optionally hide the row title. Updates from GitHub Releases.",
+    "tags": ["library", "home", "recents", "filter", "quality-of-life", "srm"],
+    "description": "Filter the Recently Played row: hide library categories and collections, set a playtime minimum, hide games from the Start menu, fix SRM ghost covers, and optionally hide the row title.",
     "image": "https://opengraph.githubassets.com/1/BirikuSistema/decky-recents-filter"
   }
 }
