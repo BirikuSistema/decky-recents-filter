@@ -54,7 +54,7 @@ export function isShortcutType(overview: SteamOverview | null): boolean {
 
 const RENDERABLE_APP_TYPES = new Set<number>([EAppType.Game, EAppType.Application, EAppType.Shortcut]);
 
-function collectionOverviews(collection: any): any[] {
+export function collectionOverviews(collection: any): any[] {
   const list = collection?.visibleApps ?? collection?.allApps;
   if (Array.isArray(list)) return list;
   const apps = collection?.apps;
@@ -79,23 +79,30 @@ function isHiddenInSteam(overview: any, appId: number): boolean {
   return false;
 }
 
+export function isValidMruIndex(mru: unknown): boolean {
+  return typeof mru === "number" && Number.isFinite(mru) && mru >= 0 && mru < 1_000_000;
+}
+
+export function hasCustomImages(overview: any): boolean {
+  if (!overview) return false;
+  try {
+    if (typeof overview.BHasCustomImages === "function") return !!overview.BHasCustomImages();
+  } catch {
+    /* ignore */
+  }
+  return Number(overview?.rt_custom_image_mtime ?? 0) > 0;
+}
+
 /** Real play activity — mirrors what Steam uses for recentApps / localPlayed. */
 function hasRealPlayActivity(overview: any): boolean {
   if (!overview) return false;
   try {
-    if (overview.mru_index !== undefined && overview.mru_index !== null) return true;
+    if (isValidMruIndex(overview.mru_index)) return true;
   } catch {
     /* ignore */
   }
   if (Number(overview.rt_last_time_locally_played ?? 0) > 0) return true;
   if (Number(overview.minutes_playtime_forever ?? 0) > 0) return true;
-  try {
-    if (typeof overview.BIsVisibleInMRUList === "function" && overview.BIsVisibleInMRUList()) {
-      return true;
-    }
-  } catch {
-    /* ignore */
-  }
   return false;
 }
 
@@ -107,7 +114,13 @@ function isEligibleLibraryApp(overview: any, appId: number): boolean {
   if (!overview) return false;
   if (!RENDERABLE_APP_TYPES.has(Number(overview.app_type))) return false;
   if (isHiddenInSteam(overview, appId)) return false;
-  if (isShortcutType(overview) && !hasRealPlayActivity(overview)) return false;
+  if (isShortcutType(overview)) {
+    if (!hasRealPlayActivity(overview)) return false;
+    const hasPlayedTime =
+      Number(overview.minutes_playtime_forever ?? 0) > 0 ||
+      Number(overview.rt_last_time_locally_played ?? 0) > 0;
+    if (!hasPlayedTime && !hasCustomImages(overview)) return false;
+  }
   return true;
 }
 
@@ -242,10 +255,12 @@ export function getNativeRowTarget(fallback = 12): number {
 }
 
 function playSortKey(overview: any): number {
+  const mru = overview?.mru_index;
+  const mruScore = isValidMruIndex(mru) ? Number.MAX_SAFE_INTEGER - Number(mru) : 0;
   return Math.max(
     Number(overview?.rt_last_time_locally_played ?? 0),
     Number(overview?.rt_last_time_played ?? 0),
-    overview?.mru_index != null ? Number.MAX_SAFE_INTEGER - Number(overview.mru_index) : 0,
+    mruScore,
   );
 }
 

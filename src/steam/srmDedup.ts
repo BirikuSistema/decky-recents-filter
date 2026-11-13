@@ -1,31 +1,13 @@
-import { getOverview, isShortcutType } from "./appOverview";
+import {
+  collectionOverviews,
+  getOverview,
+  hasCustomImages,
+  isShortcutType,
+  isValidMruIndex,
+} from "./appOverview";
 
 function collectionStore(): any {
   return (globalThis as any).collectionStore;
-}
-
-function collectionOverviews(collection: any): any[] {
-  const list = collection?.visibleApps ?? collection?.allApps;
-  if (Array.isArray(list)) return list;
-  const apps = collection?.apps;
-  if (apps && typeof apps.values === "function") {
-    try {
-      return [...apps.values()];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
-
-export function hasCustomImages(overview: any): boolean {
-  if (!overview) return false;
-  try {
-    if (typeof overview.BHasCustomImages === "function") return !!overview.BHasCustomImages();
-  } catch {
-    /* ignore */
-  }
-  return Number(overview?.rt_custom_image_mtime ?? 0) > 0;
 }
 
 /** Stable key for SRM duplicate grouping (same title → same key). */
@@ -57,7 +39,7 @@ export function artworkSiblingScore(overview: any): number {
   const played =
     Number(overview.minutes_playtime_forever ?? 0) > 0 ||
     Number(overview.rt_last_time_locally_played ?? 0) > 0 ||
-    (overview.mru_index !== undefined && overview.mru_index !== null)
+    isValidMruIndex(overview.mru_index)
       ? 1_000_000_000_000
       : 0;
   const mtime = Number(overview.rt_custom_image_mtime ?? 0);

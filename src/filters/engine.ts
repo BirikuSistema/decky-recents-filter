@@ -1,20 +1,27 @@
 import { getOverview, getSteamRecentAppIds, listRecentlyPlayedAppIds } from "../steam/appOverview";
-
-// Cache to avoid repeated lookups of the same app overview within a single filtering operation.
-const overviewCache = new Map<number, ReturnType<typeof getOverview>>();
-
 import { preferArtworkShortcut } from "../steam/srmDedup";
 import { appInHiddenCollections } from "../steam/collections";
 import type { RecentsFilterSettings } from "../settings/schema";
+
+type OverviewCache = Map<number, ReturnType<typeof getOverview>>;
 
 export type FilterDecision = {
   show: boolean;
   reason?: string;
 };
 
+function cachedOverview(appId: number, cache?: OverviewCache): ReturnType<typeof getOverview> {
+  if (!cache) return getOverview(appId);
+  if (cache.has(appId)) return cache.get(appId) ?? null;
+  const overview = getOverview(appId);
+  cache.set(appId, overview);
+  return overview;
+}
+
 export function decideAppVisibility(
   appId: number,
   settings: RecentsFilterSettings,
+  cache?: OverviewCache,
 ): FilterDecision {
   if (!settings.enabled) return { show: true, reason: "disabled" };
   if (settings.shownAppIds.includes(appId)) return { show: true, reason: "shown" };
@@ -23,25 +30,45 @@ export function decideAppVisibility(
     return { show: false, reason: "collection" };
   }
 
-  const overview = overviewCache.has(appId) ? overviewCache.get(appId)! : (() => {
-    const o = getOverview(appId);
-    overviewCache.set(appId, o);
-    return o;
-  })();
+  const overview = cachedOverview(appId, cache);
   if (!overview) return { show: true, reason: "unknown" };
 
-  if (
-    settings.minPlaytimeMinutes > 0 &&
-    (overview.minutes_playtime_forever ?? 0) < settings.minPlaytimeMinutes
-  ) {
+  const rawPlaytime = Number(overview.minutes_playtime_forever ?? 0);
+  const playtime = Number.isFinite(rawPlaytime) && rawPlaytime > 0 ? rawPlaytime : 0;
+  if (settings.minPlaytimeMinutes > 0 && playtime < settings.minPlaytimeMinutes) {
     return { show: false, reason: "playtime" };
   }
 
   return { show: true };
 }
 
-export function shouldShowApp(appId: number, settings: RecentsFilterSettings): boolean {
-  return decideAppVisibility(appId, settings).show;
+export function shouldShowApp(
+  appId: number,
+  settings: RecentsFilterSettings,
+  cache?: OverviewCache,
+): boolean {
+  return decideAppVisibility(appId, settings, cache).show;
+}
+
+function shouldKeepPair(
+  rawId: number,
+  id: number,
+  settings: RecentsFilterSettings,
+  cache: OverviewCache,
+): boolean {
+  if (rawId === id) return decideAppVisibility(id, settings, cache).show;
+  const rawDec = decideAppVisibility(rawId, settings, cache);
+  const idDec = decideAppVisibility(id, settings, cache);
+  if (rawDec.reason === "shown" || idDec.reason === "shown") return true;
+  if (
+    rawDec.reason === "manual" ||
+    rawDec.reason === "collection" ||
+    idDec.reason === "manual" ||
+    idDec.reason === "collection"
+  ) {
+    return false;
+  }
+  return rawDec.show || idDec.show;
 }
 
 export type FilterStats = {
@@ -71,6 +98,7 @@ export function filterAppIds(
   const visible: number[] = [];
   const seen = new Set<number>();
   const sourceSet = new Set(appIds);
+  const cache: OverviewCache = new Map();
 
   let sourceKept = 0;
   let sourceHidden = 0;
@@ -79,10 +107,23 @@ export function filterAppIds(
   let extrasKept = 0;
   let extrasHidden = 0;
 
+  const writeStats = () => {
+    if (!statsOut) return;
+    Object.assign(statsOut, {
+      sourceKept,
+      sourceHidden,
+      extrasTotal: extraIds.length,
+      extrasOverlap,
+      extrasNew,
+      extrasKept,
+      extrasHidden,
+    });
+  };
+
   for (const rawId of appIds) {
     const id = preferArtworkShortcut(rawId);
     if (seen.has(id)) continue;
-    if (!shouldShowApp(rawId, settings) && !shouldShowApp(id, settings)) {
+    if (!shouldKeepPair(rawId, id, settings, cache)) {
       sourceHidden += 1;
       continue;
     }
@@ -90,17 +131,7 @@ export function filterAppIds(
     sourceKept += 1;
     visible.push(id);
     if (visible.length >= goal) {
-      if (statsOut) {
-        Object.assign(statsOut, {
-          sourceKept,
-          sourceHidden,
-          extrasTotal: extraIds.length,
-          extrasOverlap,
-          extrasNew,
-          extrasKept,
-          extrasHidden,
-        });
-      }
+      writeStats();
       return visible;
     }
   }
@@ -114,7 +145,7 @@ export function filterAppIds(
     }
     extrasNew += 1;
     if (seen.has(id)) continue;
-    if (!shouldShowApp(rawId, settings) && !shouldShowApp(id, settings)) {
+    if (!shouldKeepPair(rawId, id, settings, cache)) {
       extrasHidden += 1;
       continue;
     }
@@ -123,18 +154,7 @@ export function filterAppIds(
     visible.push(id);
   }
 
-  if (statsOut) {
-    Object.assign(statsOut, {
-      sourceKept,
-      sourceHidden,
-      extrasTotal: extraIds.length,
-      extrasOverlap,
-      extrasNew,
-      extrasKept,
-      extrasHidden,
-    });
-  }
-
+  writeStats();
   return visible;
 }
 

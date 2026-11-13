@@ -30,4 +30,25 @@ describe("artworkSiblingScore", () => {
     });
     assert.ok(played > fresh);
   });
+
+  it("does not treat sentinel mru_index (-1 or 0xFFFFFFFF) as played", () => {
+    const sentinelNeg = artworkSiblingScore({
+      mru_index: -1,
+      minutes_playtime_forever: 0,
+      rt_custom_image_mtime: 100,
+    });
+    const sentinelMax = artworkSiblingScore({
+      mru_index: 4294967295,
+      minutes_playtime_forever: 0,
+      rt_custom_image_mtime: 100,
+    });
+    const validMru = artworkSiblingScore({
+      mru_index: 0,
+      minutes_playtime_forever: 0,
+      rt_custom_image_mtime: 100,
+    });
+    assert.equal(sentinelNeg, 100);
+    assert.equal(sentinelMax, 100);
+    assert.ok(validMru > sentinelNeg);
+  });
 });

@@ -1,13 +1,13 @@
 {
   "name": "decky-recents-filter",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Decky plugin that filters the SteamOS Recently Played row (categories, collections, playtime, SRM ghosts).",
   "type": "module",
   "scripts": {
     "build": "rollup -c",
     "watch": "rollup -c -w",
     "test": "tsx --test src/filters/engine.test.ts src/steam/srmDedup.test.ts src/steam/collections.test.ts",
-    "lint": "eslint . --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit --skipLibCheck",
     "test:coverage": "tsx --test --coverage src/filters/engine.test.ts src/steam/srmDedup.test.ts src/steam/collections.test.ts"
   },
   "keywords": [

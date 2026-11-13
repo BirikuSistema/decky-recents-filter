@@ -3,6 +3,7 @@ import { getCurrentSettings, subscribeSettings } from "../settings/store";
 import {
   getNativeRowTarget,
   getSteamRecentAppIds,
+  keepLibraryApps,
   listRecentlyPlayedAppIds,
 } from "../steam/appOverview";
 import { invalidateSrmDedupCache } from "../steam/srmDedup";
@@ -30,6 +31,13 @@ let crashCount = 0;
 let crashWindowStart = 0;
 let refreshGeneration = 0;
 let appliedRefreshGeneration = -1;
+let startupTimers: Array<ReturnType<typeof setTimeout>> = [];
+let hasFilteredOnce = false;
+
+function clearStartupTimers(): void {
+  for (const timer of startupTimers) clearTimeout(timer);
+  startupTimers = [];
+}
 
 function log(...args: unknown[]): void {
   console.log("[RecentsFilter]", ...args);
@@ -213,8 +221,13 @@ function applyFilterToHolder(holder: { node: any; key: "games" | "apps" }): bool
   const settings = getCurrentSettings();
   // Prefer Steam's collection (immutable) over mutated React props — fixes slider/native drift.
   const steamSource = getSteamRecentAppIds();
-  const sourceIds = steamSource.length > 0 ? steamSource : propsIds;
+  const sourceIds = steamSource.length > 0 ? steamSource : keepLibraryApps(propsIds);
   const target = getNativeRowTarget(sourceIds.length || propsIds.length || 12);
+
+  if (sourceIds.length > 0 && !hasFilteredOnce) {
+    hasFilteredOnce = true;
+    clearStartupTimers();
+  }
 
   if (!settings.enabled) {
     setDiagnostics({
@@ -416,18 +429,33 @@ export function installRecentsFilter(routerHook: any): PatchHandle | null {
   }
 
   log("installed");
+  hasFilteredOnce = false;
+  appliedRefreshGeneration = -1;
+  clearStartupTimers();
 
   const unsubSettings = subscribeSettings(() => {
-    refreshGeneration += 1;
-    syncHeaderCss();
-    notifyRecentsRefresh();
+    requestRecentsRefresh();
   });
   const unsubRefresh = subscribeRecentsRefresh(() => {
     /* generation already bumped by requestRecentsRefresh / settings */
   });
 
+  // Trigger an immediate refresh in case /library/home is already mounted, plus
+  // bounded startup retries while Steam stores finish hydrating.
+  requestRecentsRefresh();
+  for (const delayMs of [150, 500, 1200, 2500]) {
+    startupTimers.push(
+      setTimeout(() => {
+        if (!hasFilteredOnce && !crashed) requestRecentsRefresh();
+      }, delayMs),
+    );
+  }
+
   return {
     uninstall() {
+      clearStartupTimers();
+      hasFilteredOnce = false;
+      appliedRefreshGeneration = -1;
       try {
         routerHook.removePatch?.("/library/home", patch);
       } catch {

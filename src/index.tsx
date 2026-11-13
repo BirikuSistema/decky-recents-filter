@@ -13,24 +13,25 @@ export default definePlugin(() => {
   let alive = true;
   const uninstallers: Array<() => void> = [];
 
+  try {
+    const recents = installRecentsFilter(routerHook);
+    if (recents?.uninstall) uninstallers.push(recents.uninstall);
+  } catch (err) {
+    console.error("[RecentsFilter] failed to install recents patch", err);
+  }
+  try {
+    const menu = installContextMenuPatch();
+    if (menu?.uninstall) uninstallers.push(menu.uninstall);
+  } catch (err) {
+    console.error("[RecentsFilter] failed to install context menu patch", err);
+  }
+
   loadSettings()
     .catch((err) => {
       console.error("[RecentsFilter] failed to load settings, using defaults", err);
     })
     .finally(() => {
       if (!alive) return;
-      try {
-        const recents = installRecentsFilter(routerHook);
-        if (recents?.uninstall) uninstallers.push(recents.uninstall);
-      } catch (err) {
-        console.error("[RecentsFilter] failed to install recents patch", err);
-      }
-      try {
-        const menu = installContextMenuPatch();
-        if (menu?.uninstall) uninstallers.push(menu.uninstall);
-      } catch (err) {
-        console.error("[RecentsFilter] failed to install context menu patch", err);
-      }
       scheduleStartupUpdateCheck();
     });
 
