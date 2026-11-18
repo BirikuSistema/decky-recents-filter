@@ -84,7 +84,7 @@ describe("sameIdList", () => {
   });
 });
 
-describe("minPlaytimeMinutes and SRM ghost filtering", () => {
+describe("session hold ordering and SRM ghost filtering", () => {
   const prevAppStore = (globalThis as any).appStore;
   const prevCollectionStore = (globalThis as any).collectionStore;
 
@@ -93,23 +93,54 @@ describe("minPlaytimeMinutes and SRM ghost filtering", () => {
     (globalThis as any).collectionStore = prevCollectionStore;
   });
 
-  it("filters games below minPlaytimeMinutes and respects updated playtime", () => {
+  it("keeps a 5th-place game in 5th place when its last session is below minPlaytimeMinutes", () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      minPlaytimeMinutes: 10,
+      sessionHolds: {
+        "5": { predecessors: [1, 2, 3, 4], durationMs: 2 * 60_000 },
+      },
+    };
+    // Steam moved 5 to 1st place after launch, hold keeps it in 5th.
+    assert.deepEqual(filterAppIds([5, 1, 2, 3, 4], settings, [], 5), [1, 2, 3, 4, 5]);
+  });
+
+  it("keeps an out-of-row game out of the row when opened below minPlaytimeMinutes and backfills", () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      minPlaytimeMinutes: 10,
+      sessionHolds: {
+        "99": { predecessors: [1, 2, 3], durationMs: 60_000 },
+      },
+    };
+    // Before launch, row was [1, 2, 3]; Steam put 99 first and pushed 3 into extras.
+    assert.deepEqual(filterAppIds([99, 1, 2], settings, [3, 4], 3), [1, 2, 3]);
+  });
+
+  it("allows a game to move to 1st place when its session meets or exceeds minPlaytimeMinutes", () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      minPlaytimeMinutes: 10,
+      sessionHolds: {
+        "5": { predecessors: [1, 2, 3, 4], durationMs: 10 * 60_000 },
+      },
+    };
+    assert.deepEqual(filterAppIds([5, 1, 2, 3, 4], settings, [], 5), [5, 1, 2, 3, 4]);
+  });
+
+  it("shows games with 0 lifetime playtime normally to complement the row", () => {
     const overviews = new Map<number, any>([
       [101, { appid: 101, app_type: EAppType.Game, minutes_playtime_forever: 0 }],
       [102, { appid: 102, app_type: EAppType.Game, minutes_playtime_forever: 9 }],
-      [103, { appid: 103, app_type: EAppType.Game, minutes_playtime_forever: 10 }],
-      [104, { appid: 104, app_type: EAppType.Game }], // undefined playtime -> 0
+      [103, { appid: 103, app_type: EAppType.Game, minutes_playtime_forever: 120 }],
+      [104, { appid: 104, app_type: EAppType.Game }],
     ]);
     (globalThis as any).appStore = {
       GetAppOverviewByAppID: (id: number) => overviews.get(id) ?? null,
     };
 
-    const settings = { ...DEFAULT_SETTINGS, minPlaytimeMinutes: 10 };
-    assert.deepEqual(filterAppIds([101, 102, 103, 104], settings, [], 4), [103]);
-
-    // Playtime increases for 101 — must not be stuck on a stale cache.
-    overviews.set(101, { appid: 101, app_type: EAppType.Game, minutes_playtime_forever: 15 });
-    assert.deepEqual(filterAppIds([101, 102, 103, 104], settings, [], 4), [101, 103]);
+    const settings = { ...DEFAULT_SETTINGS, minPlaytimeMinutes: 20 };
+    assert.deepEqual(filterAppIds([101, 102, 103, 104], settings, [], 4), [101, 102, 103, 104]);
   });
 
   it("drops SRM garbage shortcuts with mru_index=-1 or no art & no playtime", () => {

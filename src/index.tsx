@@ -1,9 +1,10 @@
 import { staticClasses } from "@decky/ui";
 import { definePlugin, routerHook } from "@decky/api";
 import { FaFilter } from "react-icons/fa";
-import { loadSettings } from "./settings/store";
+import { getCurrentSettings, loadSettings, updateSettings } from "./settings/store";
 import { installContextMenuPatch } from "./recents/contextMenuPatch";
-import { installRecentsFilter } from "./recents/recentsPatch";
+import { installRecentsFilter, requestRecentsRefresh } from "./recents/recentsPatch";
+import { installSessionTracker } from "./recents/sessionTracker";
 import { scheduleStartupUpdateCheck } from "./updater/updater";
 import { QamPanel } from "./ui/QamPanel";
 
@@ -24,6 +25,16 @@ export default definePlugin(() => {
     if (menu?.uninstall) uninstallers.push(menu.uninstall);
   } catch (err) {
     console.error("[RecentsFilter] failed to install context menu patch", err);
+  }
+  try {
+    const tracker = installSessionTracker({
+      getSettings: getCurrentSettings,
+      saveHolds: (sessionHolds) => updateSettings({ sessionHolds }),
+      requestRefresh: requestRecentsRefresh,
+    });
+    uninstallers.push(tracker.uninstall);
+  } catch (err) {
+    console.error("[RecentsFilter] failed to install session tracker", err);
   }
 
   loadSettings()

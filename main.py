@@ -31,6 +31,7 @@ DEFAULTS: Dict[str, Any] = {
     "hiddenAppIds": [],
     "shownAppIds": [],
     "hiddenCollectionIds": [],
+    "sessionHolds": {},
 }
 
 _RELEASE_HOSTS = (

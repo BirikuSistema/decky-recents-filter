@@ -1,27 +1,17 @@
-import { getOverview, getSteamRecentAppIds, listRecentlyPlayedAppIds } from "../steam/appOverview";
+import { getActiveSessionHolds } from "../recents/sessionTracker";
+import { getSteamRecentAppIds, listRecentlyPlayedAppIds } from "../steam/appOverview";
 import { preferArtworkShortcut } from "../steam/srmDedup";
 import { appInHiddenCollections } from "../steam/collections";
-import type { RecentsFilterSettings } from "../settings/schema";
-
-type OverviewCache = Map<number, ReturnType<typeof getOverview>>;
+import type { RecentsFilterSettings, SessionHold } from "../settings/schema";
 
 export type FilterDecision = {
   show: boolean;
   reason?: string;
 };
 
-function cachedOverview(appId: number, cache?: OverviewCache): ReturnType<typeof getOverview> {
-  if (!cache) return getOverview(appId);
-  if (cache.has(appId)) return cache.get(appId) ?? null;
-  const overview = getOverview(appId);
-  cache.set(appId, overview);
-  return overview;
-}
-
 export function decideAppVisibility(
   appId: number,
   settings: RecentsFilterSettings,
-  cache?: OverviewCache,
 ): FilterDecision {
   if (!settings.enabled) return { show: true, reason: "disabled" };
   if (settings.shownAppIds.includes(appId)) return { show: true, reason: "shown" };
@@ -30,35 +20,24 @@ export function decideAppVisibility(
     return { show: false, reason: "collection" };
   }
 
-  const overview = cachedOverview(appId, cache);
-  if (!overview) return { show: true, reason: "unknown" };
-
-  const rawPlaytime = Number(overview.minutes_playtime_forever ?? 0);
-  const playtime = Number.isFinite(rawPlaytime) && rawPlaytime > 0 ? rawPlaytime : 0;
-  if (settings.minPlaytimeMinutes > 0 && playtime < settings.minPlaytimeMinutes) {
-    return { show: false, reason: "playtime" };
-  }
-
   return { show: true };
 }
 
 export function shouldShowApp(
   appId: number,
   settings: RecentsFilterSettings,
-  cache?: OverviewCache,
 ): boolean {
-  return decideAppVisibility(appId, settings, cache).show;
+  return decideAppVisibility(appId, settings).show;
 }
 
 function shouldKeepPair(
   rawId: number,
   id: number,
   settings: RecentsFilterSettings,
-  cache: OverviewCache,
 ): boolean {
-  if (rawId === id) return decideAppVisibility(id, settings, cache).show;
-  const rawDec = decideAppVisibility(rawId, settings, cache);
-  const idDec = decideAppVisibility(id, settings, cache);
+  if (rawId === id) return decideAppVisibility(id, settings).show;
+  const rawDec = decideAppVisibility(rawId, settings);
+  const idDec = decideAppVisibility(id, settings);
   if (rawDec.reason === "shown" || idDec.reason === "shown") return true;
   if (
     rawDec.reason === "manual" ||
@@ -69,6 +48,65 @@ function shouldKeepPair(
     return false;
   }
   return rawDec.show || idDec.show;
+}
+
+function mergeSessionHolds(
+  settings: RecentsFilterSettings,
+  extraHolds?: Record<string, SessionHold>,
+): Record<string, SessionHold> {
+  return {
+    ...(settings.sessionHolds ?? {}),
+    ...(extraHolds ?? {}),
+  };
+}
+
+function isHoldActive(hold: SessionHold | undefined, thresholdMs: number): hold is SessionHold {
+  return Boolean(hold && hold.durationMs < thresholdMs && hold.predecessors.length > 0);
+}
+
+/**
+ * Prevent games whose last session was shorter than `minPlaytimeMinutes`
+ * from jumping ahead of apps that previously preceded them.
+ */
+export function applySessionHolds(
+  candidates: number[],
+  settings: RecentsFilterSettings,
+  extraHolds?: Record<string, SessionHold>,
+): number[] {
+  if (settings.minPlaytimeMinutes <= 0 || candidates.length <= 1) return candidates;
+
+  const thresholdMs = settings.minPlaytimeMinutes * 60_000;
+  const holds = mergeSessionHolds(settings, extraHolds);
+  const working: number[] = [];
+  const held: Array<{ id: number; hold: SessionHold }> = [];
+
+  for (const id of candidates) {
+    const hold = holds[String(id)];
+    if (isHoldActive(hold, thresholdMs)) {
+      held.push({ id, hold });
+    } else {
+      working.push(id);
+    }
+  }
+
+  if (held.length === 0) return candidates;
+
+  held.sort((a, b) => a.hold.predecessors.length - b.hold.predecessors.length);
+
+  for (const { id, hold } of held) {
+    const predSet = new Set(hold.predecessors);
+    let lastPredIdx = -1;
+    for (let i = 0; i < working.length; i++) {
+      if (predSet.has(working[i])) lastPredIdx = i;
+    }
+    if (lastPredIdx === -1) {
+      working.unshift(id);
+    } else {
+      working.splice(lastPredIdx + 1, 0, id);
+    }
+  }
+
+  return working;
 }
 
 export type FilterStats = {
@@ -82,8 +120,8 @@ export type FilterStats = {
 };
 
 /**
- * Build the Recents row: keep Steam order, drop hidden apps, backfill from extras
- * until `target` (native Steam row length). Never uses maxVisible.
+ * Build the Recents row: keep Steam order (with session holds), drop hidden apps,
+ * backfill from extras until `target` (native Steam row length). Never uses maxVisible.
  */
 export function filterAppIds(
   appIds: number[],
@@ -95,10 +133,20 @@ export function filterAppIds(
   if (!settings.enabled) return appIds;
 
   const goal = Math.max(1, target ?? appIds.length);
+  const activeHolds = getActiveSessionHolds();
+  let activeHoldCount = 0;
+  if (settings.minPlaytimeMinutes > 0) {
+    const thresholdMs = settings.minPlaytimeMinutes * 60_000;
+    const allHolds = mergeSessionHolds(settings, activeHolds);
+    for (const hold of Object.values(allHolds)) {
+      if (isHoldActive(hold, thresholdMs)) activeHoldCount += 1;
+    }
+  }
+  const collectLimit = goal + activeHoldCount;
+
   const visible: number[] = [];
   const seen = new Set<number>();
   const sourceSet = new Set(appIds);
-  const cache: OverviewCache = new Map();
 
   let sourceKept = 0;
   let sourceHidden = 0;
@@ -107,8 +155,38 @@ export function filterAppIds(
   let extrasKept = 0;
   let extrasHidden = 0;
 
-  const writeStats = () => {
-    if (!statsOut) return;
+  for (const rawId of appIds) {
+    const id = preferArtworkShortcut(rawId);
+    if (seen.has(id)) continue;
+    if (!shouldKeepPair(rawId, id, settings)) {
+      sourceHidden += 1;
+      continue;
+    }
+    seen.add(id);
+    sourceKept += 1;
+    visible.push(id);
+    if (visible.length >= collectLimit) break;
+  }
+
+  for (const rawId of extraIds) {
+    if (visible.length >= collectLimit) break;
+    const id = preferArtworkShortcut(rawId);
+    if (sourceSet.has(rawId) || sourceSet.has(id)) {
+      extrasOverlap += 1;
+      continue;
+    }
+    extrasNew += 1;
+    if (seen.has(id)) continue;
+    if (!shouldKeepPair(rawId, id, settings)) {
+      extrasHidden += 1;
+      continue;
+    }
+    seen.add(id);
+    extrasKept += 1;
+    visible.push(id);
+  }
+
+  if (statsOut) {
     Object.assign(statsOut, {
       sourceKept,
       sourceHidden,
@@ -118,44 +196,9 @@ export function filterAppIds(
       extrasKept,
       extrasHidden,
     });
-  };
-
-  for (const rawId of appIds) {
-    const id = preferArtworkShortcut(rawId);
-    if (seen.has(id)) continue;
-    if (!shouldKeepPair(rawId, id, settings, cache)) {
-      sourceHidden += 1;
-      continue;
-    }
-    seen.add(id);
-    sourceKept += 1;
-    visible.push(id);
-    if (visible.length >= goal) {
-      writeStats();
-      return visible;
-    }
   }
 
-  for (const rawId of extraIds) {
-    if (visible.length >= goal) break;
-    const id = preferArtworkShortcut(rawId);
-    if (sourceSet.has(rawId) || sourceSet.has(id)) {
-      extrasOverlap += 1;
-      continue;
-    }
-    extrasNew += 1;
-    if (seen.has(id)) continue;
-    if (!shouldKeepPair(rawId, id, settings, cache)) {
-      extrasHidden += 1;
-      continue;
-    }
-    seen.add(id);
-    extrasKept += 1;
-    visible.push(id);
-  }
-
-  writeStats();
-  return visible;
+  return applySessionHolds(visible, settings, activeHolds).slice(0, goal);
 }
 
 /** How many apps would remain visible with these settings (Steam source + backfill). */

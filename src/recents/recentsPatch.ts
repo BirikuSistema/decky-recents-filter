@@ -10,6 +10,7 @@ import { invalidateSrmDedupCache } from "../steam/srmDedup";
 import { resetDiagnostics, setDiagnostics } from "./diagnostics";
 import { findInReactTree, patchElementType, releaseAllPatches } from "./reactTree";
 import { notifyRecentsRefresh, subscribeRecentsRefresh } from "./refreshBus";
+import { recordRenderedOrder } from "./sessionTracker";
 
 type PatchHandle = { uninstall: () => void };
 
@@ -243,6 +244,7 @@ function applyFilterToHolder(holder: { node: any; key: "games" | "apps" }): bool
   const extras = listRecentlyPlayedAppIds(Math.max(120, target * 6));
   invalidateSrmDedupCache();
   const filtered = filterAppIds(sourceIds, settings, extras, target);
+  recordRenderedOrder(filtered);
 
   const forceWrite = appliedRefreshGeneration !== refreshGeneration;
   const same = sameIdList(propsIds, filtered);
